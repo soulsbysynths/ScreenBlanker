@@ -1,0 +1,19 @@
+# Normalise text to LF in the repository (matches .editorconfig).
+* text=auto eol=lf
+
+# Shell scripts must stay LF even on Windows checkouts.
+*.sh text eol=lf
+
+# Unity YAML assets: never let git try to merge them line by line.
+*.unity text eol=lf merge=unityyamlmerge
+*.prefab text eol=lf merge=unityyamlmerge
+*.asset text eol=lf merge=unityyamlmerge
+*.meta text eol=lf
+
+# Binary
+*.png binary
+*.ico binary
+*.icns binary
+*.dll binary
+*.exe binary
+*.ttf binary
