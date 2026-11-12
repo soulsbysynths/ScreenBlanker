@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RuleSet Name="ScreenBlanker C# Rules" Description="House C# style, based on TheCube2's StyleCop ruleset with documented divergences — see ~/.claude/CLAUDE.md." ToolsVersion="17.0">
+  <Rules AnalyzerId="StyleCop.Analyzers" RuleNamespace="StyleCop.Analyzers">
+    <!-- Inherited from TheCube2 -->
+    <Rule Id="SA0001" Action="None" /> <!-- XmlCommentAnalysisDisabled -->
+    <Rule Id="SA1101" Action="None" /> <!-- PrefixLocalCallsWithThis -->
+    <Rule Id="SA1117" Action="None" /> <!-- ParametersMustBeOnSameLineOrSeparateLines -->
+    <Rule Id="SA1200" Action="None" /> <!-- UsingDirectivesMustBePlacedCorrectly -->
+    <Rule Id="SA1210" Action="None" /> <!-- UsingDirectivesMustBeOrderedAlphabeticallyByNamespace -->
+    <Rule Id="SA1211" Action="None" /> <!-- UsingAliasDirectivesMustBeOrderedAlphabeticallyByAliasName -->
+    <Rule Id="SA1217" Action="None" /> <!-- UsingStaticDirectivesMustBeOrderedAlphabetically -->
+    <Rule Id="SA1307" Action="None" /> <!-- AccessibleFieldsMustBeginWithUpperCaseLetter -->
+    <Rule Id="SA1501" Action="None" /> <!-- StatementMustNotBeOnASingleLine -->
+    <Rule Id="SA1503" Action="None" /> <!-- BracesMustNotBeOmitted -->
+    <Rule Id="SA1504" Action="None" /> <!-- AllAccessorsMustBeSingleLineOrMultiLine -->
+    <Rule Id="SA1512" Action="None" /> <!-- SingleLineCommentsMustNotBeFollowedByBlankLine -->
+    <Rule Id="SA1633" Action="None" /> <!-- FileMustHaveHeader -->
+    <Rule Id="SA1636" Action="None" /> <!-- FileHeaderCopyrightTextMustMatch -->
+    <!-- SA1141 (UseTupleSyntax) intentionally omitted: does not exist in StyleCop.Analyzers 1.1.118. -->
+
+    <!-- Additional suppressions agreed (house style) — relax doc-comment ceremony,
+         keep SA1600 (public members must have a summary) and SA1614/SA1616
+         (a param/returns tag, once written, must not be empty). -->
+    <Rule Id="SA1602" Action="None" /> <!-- EnumerationItemsMustBeDocumented -->
+    <Rule Id="SA1611" Action="None" /> <!-- ElementParametersMustBeDocumented -->
+    <Rule Id="SA1615" Action="None" /> <!-- ElementReturnValueMustBeDocumented -->
+    <Rule Id="SA1618" Action="None" /> <!-- GenericTypeParametersMustBeDocumented -->
+    <Rule Id="SA1623" Action="None" /> <!-- PropertySummaryDocumentationMustMatchAccessors -->
+    <Rule Id="SA1642" Action="None" /> <!-- ConstructorSummaryDocumentationMustBeginWithStandardText -->
+    <Rule Id="SA1643" Action="None" /> <!-- DestructorSummaryDocumentationMustBeginWithStandardText -->
+  </Rules>
+</RuleSet>
