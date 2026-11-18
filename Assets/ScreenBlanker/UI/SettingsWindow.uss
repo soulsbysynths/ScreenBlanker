@@ -1,0 +1,305 @@
+/*
+ * ScreenBlanker settings window. Sizes are in design units: the panel is laid out at 860 x 620 and
+ * scaled to fit the window (see ScreenBlankerPanelSettings), so the whole layout grows and shrinks
+ * together. Colours are the brand green / red on dark greys.
+ */
+
+:root {
+	--background: #1C1D21;
+	--card: #2A2C32;
+	--field: #1C1D21;
+	--text: #EEEEF0;
+	--muted: #9A9CA4;
+	--green: #00A657;
+	--red: #F02B2C;
+	--neutral: #444750;
+}
+
+.window {
+	flex-grow: 1;
+	background-color: var(--background);
+	padding: 16px;
+}
+
+.settings {
+	flex-grow: 1;
+}
+
+.flexible-space {
+	flex-grow: 1;
+}
+
+/* Header */
+
+.header {
+	flex-direction: row;
+	align-items: flex-end;
+	margin-bottom: 12px;
+}
+
+.title {
+	font-size: 22px;
+	-unity-font-style: bold;
+	color: var(--text);
+	padding: 0;
+	margin: 0;
+}
+
+.version {
+	font-size: 13px;
+	color: var(--muted);
+	margin-left: 6px;
+	margin-bottom: 3px;
+}
+
+/* Columns and cards */
+
+.columns {
+	flex-direction: row;
+	flex-grow: 1;
+}
+
+.column {
+	flex-grow: 1;
+	flex-basis: 0;
+}
+
+.column--right {
+	margin-left: 12px;
+}
+
+.card {
+	background-color: var(--card);
+	padding: 12px 14px;
+	margin-bottom: 12px;
+}
+
+/* Nothing in a card may shrink below its content, or rows end up drawn over each other. */
+.column > .card,
+.card > * {
+	flex-shrink: 0;
+}
+
+.card--fill {
+	flex-grow: 1;
+}
+
+.card--last {
+	margin-bottom: 0;
+}
+
+/* Text */
+
+Label {
+	color: var(--text);
+	font-size: 14px;
+	-unity-text-align: middle-left;
+	white-space: normal;
+}
+
+.heading {
+	font-size: 15px;
+	-unity-font-style: bold;
+	margin-bottom: 6px;
+}
+
+.label {
+	font-size: 14px;
+}
+
+.muted {
+	font-size: 13px;
+	color: var(--muted);
+	white-space: normal;
+}
+
+.big-time {
+	font-size: 46px;
+	-unity-font-style: bold;
+	-unity-text-align: middle-center;
+	height: 80px;
+}
+
+.separator {
+	font-size: 30px;
+	-unity-font-style: bold;
+	color: var(--muted);
+	-unity-text-align: middle-center;
+	width: 18px;
+	height: 96px;
+}
+
+.unit {
+	font-size: 13px;
+	color: var(--muted);
+	-unity-text-align: upper-center;
+}
+
+/* Steppers: + / two-digit field / - / unit */
+
+.stepper-row {
+	flex-direction: row;
+	justify-content: center;
+	align-items: flex-start;
+	margin-top: 4px;
+	margin-bottom: 4px;
+}
+
+.stepper {
+	width: 72px;
+}
+
+.stepper-button {
+	height: 22px;
+	margin: 2px 0;
+	font-size: 14px;
+	-unity-font-style: bold;
+	color: white;
+	background-color: var(--neutral);
+	border-width: 0;
+	border-radius: 0;
+}
+
+.stepper-button:hover {
+	background-color: #5E6069;
+}
+
+.stepper-button:active {
+	background-color: #363940;
+}
+
+.stepper-field {
+	margin: 0;
+	height: 48px;
+}
+
+.stepper-field > .unity-base-text-field__input {
+	background-color: var(--field);
+	border-width: 0;
+	border-radius: 0;
+	color: var(--text);
+	font-size: 30px;
+	-unity-font-style: bold;
+	-unity-text-align: middle-center;
+	padding: 0;
+}
+
+.stepper-field:focus > .unity-base-text-field__input {
+	background-color: #1A3D2D;
+}
+
+/* Countdown while running */
+
+.countdown-running {
+	display: none;
+}
+
+/* Buttons */
+
+.button-row {
+	flex-direction: row;
+	margin-top: 6px;
+}
+
+.button {
+	flex-grow: 1;
+	flex-basis: 0;
+	height: 34px;
+	margin: 4px;
+	font-size: 14px;
+	-unity-font-style: bold;
+	color: white;
+	background-color: var(--neutral);
+	border-width: 0;
+	border-radius: 0;
+}
+
+.button:hover {
+	background-color: #5E6069;
+}
+
+.button:active {
+	background-color: #363940;
+}
+
+.button.primary {
+	background-color: var(--green);
+}
+
+.button.primary:hover {
+	background-color: #26B370;
+}
+
+.button.danger {
+	background-color: var(--red);
+}
+
+.button.danger:hover {
+	background-color: #F24B4C;
+}
+
+.button.small {
+	height: 28px;
+	font-size: 13px;
+}
+
+.button:disabled {
+	opacity: 0.45;
+}
+
+/* Toggles */
+
+.toggle {
+	margin: 3px 0;
+}
+
+.toggle Label {
+	font-size: 14px;
+	color: var(--text);
+	margin-left: 4px;
+}
+
+/* Blackout card */
+
+.graphic-row {
+	flex-direction: row;
+	margin-top: 6px;
+	margin-bottom: 8px;
+}
+
+.graphic-preview {
+	width: 64px;
+	height: 64px;
+	flex-shrink: 0;
+	background-color: var(--background);
+	-unity-background-scale-mode: scale-to-fit;
+	margin-right: 4px;
+}
+
+.graphic-details {
+	flex-grow: 1;
+}
+
+.graphic-details .button-row {
+	margin-top: 0;
+}
+
+.keys-title {
+	margin-top: 4px;
+}
+
+.keys {
+	background-color: var(--field);
+	font-size: 18px;
+	-unity-font-style: bold;
+	-unity-text-align: middle-center;
+	height: 40px;
+	margin: 4px;
+}
+
+/* Editor-only stand-in for the hidden window */
+
+.hidden-placeholder {
+	display: none;
+	flex-grow: 1;
+}

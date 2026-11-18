@@ -4,6 +4,8 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Security;
 using AOT;
+using ScreenBlanker.Blackout;
+using ScreenBlanker.Keys;
 using UnityEngine;
 using static ScreenBlanker.Platform.MacNative;
 
@@ -20,12 +22,21 @@ namespace ScreenBlanker.Platform
 		private const string MenuTargetClassName = "SBMenuTarget";
 		private const string LaunchAgentLabel = "com.soulsbysynths.screenblanker";
 		private const string StatusIconFileName = "StatusIcon.png";
-		private const string PromptText = "Press Esc";
-		private const double PromptWidth = 120.0;
 		private const double PromptHeight = 24.0;
 		private const double PromptFontSize = 16.0;
+		private const double GroupGap = 12.0;
 		private const double StatusIconPoints = 18.0;
-		private const ushort KeyCodeEscape = 53;
+
+		// The graphic is shown at up to 180 points, rendered from 2x pixels for Retina displays.
+		private const int GraphicPixelsPerPoint = 2;
+		private const int GraphicDisplayPoints = 180;
+		private const ulong EventTypeKeyDown = 10;
+		private const long ImageScaleProportionallyUpOrDown = 3;
+		private const long ModalResponseOk = 1;
+		private const ulong ModifierFlagShift = 1UL << 17;
+		private const ulong ModifierFlagControl = 1UL << 18;
+		private const ulong ModifierFlagOption = 1UL << 19;
+		private const ulong ModifierFlagCommand = 1UL << 20;
 		private const long ActivationPolicyAccessory = 1;
 		private const ulong WindowStyleBorderless = 0;
 		private const ulong WindowStyleClosable = 1UL << 1;
@@ -46,6 +57,9 @@ namespace ScreenBlanker.Platform
 		// Callbacks are static (required for IL2CPP) and reach the live host through this.
 		private static MacPlatformHost current;
 		private static ObjectArgImp keyDownImp;
+		private static ObjectArgImp flagsChangedImp;
+		private static ObjectArgImp ignoreImp;
+		private static BoolObjectArgImp keyEquivalentImp;
 		private static ObjectArgImp menuActionImp;
 		private static ObjectArgImp menuWillOpenImp;
 		private static BoolReturnImp yesImp;
@@ -67,6 +81,13 @@ namespace ScreenBlanker.Platform
 		private IntPtr timerInfoItem;
 		private IntPtr dailyInfoItem;
 		private IntPtr displaysInfoItem;
+		private IntPtr blackoutImage;
+		private BlackoutContent content;
+		private KeySequence.Matcher exitMatcher;
+		private double groupWidth;
+		private double groupHeight;
+		private double graphicPointWidth;
+		private double graphicPointHeight;
 		private string lastBarTitle;
 		private bool? wasArmed;
 		private bool wasActive;
@@ -75,7 +96,6 @@ namespace ScreenBlanker.Platform
 		private float lastStatusRefreshTime;
 		private int blackoutDisplayCount;
 		private bool isInitialised;
-		private bool isPromptVisible;
 		private bool isCursorHidden;
 
 		/// <summary>
@@ -100,6 +120,9 @@ namespace ScreenBlanker.Platform
 
 		/// <inheritdoc/>
 		public bool IsBlackoutDrawnInApp => false;
+
+		/// <inheritdoc/>
+		public int GraphicMaxPixels => GraphicDisplayPoints * GraphicPixelsPerPoint;
 
 		/// <inheritdoc/>
 		public bool TryClaimSingleInstance()
@@ -212,15 +235,18 @@ namespace ScreenBlanker.Platform
 		}
 
 		/// <inheritdoc/>
-		public void ShowBlackout(bool isPromptVisible)
+		public void ShowBlackout(BlackoutContent content)
 		{
 			if (!isInitialised || IsBlackoutVisible)
 				return;
 
-			this.isPromptVisible = isPromptVisible;
+			this.content = content;
+			exitMatcher = content.ExitSequence.CreateMatcher();
 			IntPtr pool = AutoreleasePoolPush();
 			try
 			{
+				CreateBlackoutImage(content.Graphic);
+				MeasureGroup();
 				CreateBlackoutWindows();
 				IsBlackoutVisible = true;
 				lastPromptMoveTime = Time.realtimeSinceStartup;
@@ -252,6 +278,7 @@ namespace ScreenBlanker.Platform
 
 				blackoutWindows.Clear();
 				IsBlackoutVisible = false;
+				ReleaseBlackoutImage();
 
 				// [NSCursor hide] calls are counted, so undo exactly the one we made.
 				if (isCursorHidden)
@@ -263,6 +290,59 @@ namespace ScreenBlanker.Platform
 				// Give focus back to whatever the user was working in.
 				if (!IsSettingsWindowVisible && !isEditor)
 					Send(application, Sel("hide:"), IntPtr.Zero);
+			}
+			finally
+			{
+				AutoreleasePoolPop(pool);
+			}
+		}
+
+		/// <inheritdoc/>
+		public string ChooseImageFile()
+		{
+#if UNITY_EDITOR
+			string chosen = UnityEditor.EditorUtility.OpenFilePanel("Choose blackout graphic", string.Empty, "png,jpg,jpeg");
+			return string.IsNullOrEmpty(chosen) ? null : chosen;
+#else
+			IntPtr pool = AutoreleasePoolPush();
+			try
+			{
+				IntPtr types = SendClass("NSMutableArray", "array");
+				foreach (string type in new[] { "png", "jpg", "jpeg" })
+					Send(types, Sel("addObject:"), NSString(type));
+
+				IntPtr panel = SendClass("NSOpenPanel", "openPanel");
+				Send(panel, Sel("setCanChooseFiles:"), Yes);
+				Send(panel, Sel("setCanChooseDirectories:"), No);
+				Send(panel, Sel("setAllowsMultipleSelection:"), No);
+				Send(panel, Sel("setAllowedFileTypes:"), types);
+				Send(panel, Sel("setMessage:"), NSString("Choose a PNG or JPEG image for the blackout"));
+
+				// An accessory app's panel opens behind other apps unless the app is active.
+				ActivateApplication();
+				if ((long)Send(panel, Sel("runModal")) != ModalResponseOk)
+					return null;
+
+				string path = FromNSString(Send(Send(panel, Sel("URL")), Sel("path")));
+				return string.IsNullOrEmpty(path) ? null : path;
+			}
+			finally
+			{
+				AutoreleasePoolPop(pool);
+			}
+#endif
+		}
+
+		/// <inheritdoc/>
+		public void SetWindowTitle(string title)
+		{
+			if (isEditor || unityWindow == IntPtr.Zero)
+				return;
+
+			IntPtr pool = AutoreleasePoolPush();
+			try
+			{
+				Send(unityWindow, Sel("setTitle:"), NSString(title));
 			}
 			finally
 			{
@@ -457,16 +537,24 @@ namespace ScreenBlanker.Platform
 			// Delegates are kept in static fields so the GC can never collect a callback that AppKit
 			// still holds a pointer to.
 			keyDownImp = OnBlackoutKeyDown;
+			flagsChangedImp = OnBlackoutFlagsChanged;
+			ignoreImp = IgnoreAction;
+			keyEquivalentImp = OnBlackoutKeyEquivalent;
 			menuActionImp = OnMenuAction;
 			menuWillOpenImp = OnMenuWillOpen;
 			yesImp = ReturnYes;
 
-			// A borderless NSWindow refuses key status, so it would never see the Escape key.
+			// A borderless NSWindow refuses key status, so it would never see key presses.
+			// keyDown: gets ordinary keys, flagsChanged: modifier keys on their own, and
+			// performKeyEquivalent: Command / Control combinations, which it swallows so shortcuts such
+			// as Cmd+Q or Cmd+H cannot get round the blackout.
 			IntPtr windowClass = GetOrCreateClass(BlackoutWindowClassName, "NSWindow");
 			ReplaceMethod(windowClass, Sel("canBecomeKeyWindow"), Marshal.GetFunctionPointerForDelegate(yesImp), "c@:");
 			ReplaceMethod(windowClass, Sel("canBecomeMainWindow"), Marshal.GetFunctionPointerForDelegate(yesImp), "c@:");
 			ReplaceMethod(windowClass, Sel("keyDown:"), Marshal.GetFunctionPointerForDelegate(keyDownImp), "v@:@");
-			ReplaceMethod(windowClass, Sel("cancelOperation:"), Marshal.GetFunctionPointerForDelegate(keyDownImp), "v@:@");
+			ReplaceMethod(windowClass, Sel("flagsChanged:"), Marshal.GetFunctionPointerForDelegate(flagsChangedImp), "v@:@");
+			ReplaceMethod(windowClass, Sel("performKeyEquivalent:"), Marshal.GetFunctionPointerForDelegate(keyEquivalentImp), "c@:@");
+			ReplaceMethod(windowClass, Sel("cancelOperation:"), Marshal.GetFunctionPointerForDelegate(ignoreImp), "v@:@");
 
 			IntPtr targetClass = GetOrCreateClass(MenuTargetClassName, "NSObject");
 			ReplaceMethod(targetClass, Sel("menuAction:"), Marshal.GetFunctionPointerForDelegate(menuActionImp), "v@:@");
@@ -482,13 +570,72 @@ namespace ScreenBlanker.Platform
 		[MonoPInvokeCallback(typeof(ObjectArgImp))]
 		private static void OnBlackoutKeyDown(IntPtr self, IntPtr cmd, IntPtr nsEvent)
 		{
-			if (current == null)
+			if (current == null || nsEvent == IntPtr.Zero)
+				return;
+			if (SendBool(nsEvent, Sel("isARepeat")) != No)
 				return;
 
-			// cancelOperation: arrives with a nil sender for Escape; keyDown: carries the event.
-			bool isEscape = cmd == Sel("cancelOperation:") || SendUShort(nsEvent, Sel("keyCode")) == KeyCodeEscape;
-			if (isEscape)
-				current.HideBlackout();
+			current.FeedKey(KeyCatalogue.FromMacKeyCode(SendUShort(nsEvent, Sel("keyCode"))));
+		}
+
+		[MonoPInvokeCallback(typeof(BoolObjectArgImp))]
+		private static byte OnBlackoutKeyEquivalent(IntPtr self, IntPtr cmd, IntPtr nsEvent)
+		{
+			if (current == null || nsEvent == IntPtr.Zero)
+				return No;
+			if (SendULong(nsEvent, Sel("type")) != EventTypeKeyDown)
+				return No;
+
+			// Returning YES consumes the event, so keyDown: is not called for it as well.
+			OnBlackoutKeyDown(self, cmd, nsEvent);
+			return Yes;
+		}
+
+		/// <summary>
+		/// A modifier key went down or up. The event only says which key changed, so it counts as a
+		/// press when that modifier's flag is now set.
+		/// </summary>
+		[MonoPInvokeCallback(typeof(ObjectArgImp))]
+		private static void OnBlackoutFlagsChanged(IntPtr self, IntPtr cmd, IntPtr nsEvent)
+		{
+			if (current == null || nsEvent == IntPtr.Zero)
+				return;
+
+			KeyCode key = KeyCatalogue.FromMacKeyCode(SendUShort(nsEvent, Sel("keyCode")));
+			ulong flags = SendULong(nsEvent, Sel("modifierFlags"));
+			if ((flags & ModifierFlagFor(key)) != 0)
+				current.FeedKey(key);
+		}
+
+		[MonoPInvokeCallback(typeof(ObjectArgImp))]
+		private static void IgnoreAction(IntPtr self, IntPtr cmd, IntPtr sender)
+		{
+		}
+
+		private static ulong ModifierFlagFor(KeyCode key)
+		{
+			switch (key)
+			{
+				case KeyCode.LeftShift:
+					return ModifierFlagShift;
+				case KeyCode.LeftControl:
+					return ModifierFlagControl;
+				case KeyCode.LeftAlt:
+					return ModifierFlagOption;
+				case KeyCode.LeftCommand:
+					return ModifierFlagCommand;
+				default:
+					return 0;
+			}
+		}
+
+		/// <summary>
+		/// NSTextAlignmentCenter is 2 on Intel Macs but 1 on Apple silicon (AppKit's NSText.h switches
+		/// on TARGET_ABI_USES_IOS_VALUES, which is true for every CPU other than x86_64).
+		/// </summary>
+		private static long TextAlignmentCentre()
+		{
+			return RuntimeInformation.ProcessArchitecture == Architecture.X64 ? 2 : 1;
 		}
 
 		[MonoPInvokeCallback(typeof(ObjectArgImp))]
@@ -645,14 +792,88 @@ namespace ScreenBlanker.Platform
 			Send(item, Sel("setTitle:"), NSString(title));
 		}
 
+		private void FeedKey(KeyCode key)
+		{
+			if (IsBlackoutVisible && exitMatcher != null && exitMatcher.Feed(key))
+				HideBlackout();
+		}
+
+		private void CreateBlackoutImage(BlackoutGraphic graphic)
+		{
+			ReleaseBlackoutImage();
+			graphicPointWidth = 0.0;
+			graphicPointHeight = 0.0;
+			if (graphic == null)
+				return;
+
+			IntPtr data = Send(GetClass("NSData"), Sel("dataWithBytes:length:"), graphic.Png, (ulong)graphic.Png.Length);
+			blackoutImage = Send(Send(GetClass("NSImage"), Sel("alloc")), Sel("initWithData:"), data);
+			if (blackoutImage == IntPtr.Zero)
+				return;
+
+			graphicPointWidth = graphic.PixelWidth / (double)GraphicPixelsPerPoint;
+			graphicPointHeight = graphic.PixelHeight / (double)GraphicPixelsPerPoint;
+			Send(blackoutImage, Sel("setSize:"), new CGSize(graphicPointWidth, graphicPointHeight));
+		}
+
+		private void ReleaseBlackoutImage()
+		{
+			if (blackoutImage == IntPtr.Zero)
+				return;
+
+			Send(blackoutImage, Sel("release"));
+			blackoutImage = IntPtr.Zero;
+		}
+
+		/// <summary>
+		/// Sizes the moving group: graphic on top, prompt text centred beneath it. Text cannot be
+		/// measured without a struct return, so its width is a generous estimate; the label is centred
+		/// in the group, so over-estimating only widens the invisible margin.
+		/// </summary>
+		private void MeasureGroup()
+		{
+			double textWidth = content.PromptText == null ? 0.0 : (content.PromptText.Length * PromptFontSize * 0.7) + 20.0;
+			double textHeight = content.PromptText == null ? 0.0 : PromptHeight;
+			double gap = graphicPointHeight > 0.0 && textHeight > 0.0 ? GroupGap : 0.0;
+			groupWidth = Math.Max(graphicPointWidth, textWidth);
+			groupHeight = graphicPointHeight + gap + textHeight;
+		}
+
+		/// <summary>
+		/// Builds the view holding the graphic and the text. Cocoa's origin is bottom left, so the text
+		/// sits at y = 0 and the graphic above it. Returns an owned (+1) view.
+		/// </summary>
+		private IntPtr CreateGroupView()
+		{
+			IntPtr group = SendObject(Send(GetClass("NSView"), Sel("alloc")), Sel("initWithFrame:"), new CGRect(0.0, 0.0, groupWidth, groupHeight));
+
+			if (blackoutImage != IntPtr.Zero)
+			{
+				IntPtr imageView = Send(GetClass("NSImageView"), Sel("imageViewWithImage:"), blackoutImage);
+				Send(imageView, Sel("setImageScaling:"), ImageScaleProportionallyUpOrDown);
+				Send(imageView, Sel("setFrame:"), new CGRect((groupWidth - graphicPointWidth) / 2.0, groupHeight - graphicPointHeight, graphicPointWidth, graphicPointHeight));
+				Send(group, Sel("addSubview:"), imageView);
+			}
+
+			if (content.PromptText != null)
+			{
+				IntPtr label = Send(GetClass("NSTextField"), Sel("labelWithString:"), NSString(content.PromptText));
+				Send(label, Sel("setTextColor:"), Send(GetClass("NSColor"), Sel("colorWithWhite:alpha:"), 0.55, 1.0));
+				Send(label, Sel("setFont:"), Send(GetClass("NSFont"), Sel("systemFontOfSize:"), PromptFontSize));
+				Send(label, Sel("setAlignment:"), TextAlignmentCentre());
+				Send(label, Sel("setFrame:"), new CGRect(0.0, 0.0, groupWidth, PromptHeight));
+				Send(group, Sel("addSubview:"), label);
+			}
+
+			return group;
+		}
+
 		private void CreateBlackoutWindows()
 		{
 			List<CGRect> displays = GetDisplayBounds();
 			blackoutDisplayCount = displays.Count;
 
 			IntPtr black = SendClass("NSColor", "blackColor");
-			IntPtr promptColour = Send(GetClass("NSColor"), Sel("colorWithWhite:alpha:"), 0.55, 1.0);
-			IntPtr promptFont = Send(GetClass("NSFont"), Sel("systemFontOfSize:"), PromptFontSize);
 			IntPtr windowClass = GetClass(BlackoutWindowClassName);
 
 			foreach (CGRect frame in displays)
@@ -667,17 +888,15 @@ namespace ScreenBlanker.Platform
 				Send(window, Sel("setCollectionBehavior:"), BlackoutCollectionBehaviour);
 				Send(window, Sel("setFrame:display:"), frame, Yes);
 
-				IntPtr label = IntPtr.Zero;
-				if (isPromptVisible)
+				IntPtr group = IntPtr.Zero;
+				if (content.HasOverlay)
 				{
-					label = Send(GetClass("NSTextField"), Sel("labelWithString:"), NSString(PromptText));
-					Send(label, Sel("setTextColor:"), promptColour);
-					Send(label, Sel("setFont:"), promptFont);
-					Send(label, Sel("setFrame:"), new CGRect(0.0, 0.0, PromptWidth, PromptHeight));
-					Send(Send(window, Sel("contentView")), Sel("addSubview:"), label);
+					group = CreateGroupView();
+					Send(Send(window, Sel("contentView")), Sel("addSubview:"), group);
+					Send(group, Sel("release"));
 				}
 
-				BlackoutWindow blackout = new BlackoutWindow(window, label, frame.Width, frame.Height);
+				BlackoutWindow blackout = new BlackoutWindow(window, group, frame.Width, frame.Height);
 				blackoutWindows.Add(blackout);
 				MovePrompt(blackout);
 				Send(window, Sel("orderFrontRegardless"));
@@ -704,20 +923,20 @@ namespace ScreenBlanker.Platform
 			foreach (BlackoutWindow blackout in blackoutWindows)
 				MovePrompt(blackout);
 
-			// Activation can be refused when another app is mid-interaction; keep asking so Escape
-			// reaches us. (Clicking the blackout also activates the app.)
+			// Activation can be refused when another app is mid-interaction; keep asking so key presses
+			// reach us. (Clicking the blackout also activates the app.)
 			if (SendBool(application, Sel("isActive")) == No)
 				TakeFocus();
 		}
 
 		private void MovePrompt(BlackoutWindow blackout)
 		{
-			if (blackout.Label == IntPtr.Zero)
+			if (blackout.Group == IntPtr.Zero)
 				return;
 
-			double x = random.NextDouble() * Math.Max(0.0, blackout.Width - PromptWidth);
-			double y = random.NextDouble() * Math.Max(0.0, blackout.Height - PromptHeight);
-			Send(blackout.Label, Sel("setFrameOrigin:"), new CGPoint(x, y));
+			double x = Math.Floor(random.NextDouble() * Math.Max(0.0, blackout.Width - groupWidth));
+			double y = Math.Floor(random.NextDouble() * Math.Max(0.0, blackout.Height - groupHeight));
+			Send(blackout.Group, Sel("setFrameOrigin:"), new CGPoint(x, y));
 		}
 
 		private void TakeFocus()
@@ -780,17 +999,17 @@ namespace ScreenBlanker.Platform
 
 		private sealed class BlackoutWindow
 		{
-			public BlackoutWindow(IntPtr window, IntPtr label, double width, double height)
+			public BlackoutWindow(IntPtr window, IntPtr group, double width, double height)
 			{
 				Window = window;
-				Label = label;
+				Group = group;
 				Width = width;
 				Height = height;
 			}
 
 			public IntPtr Window { get; }
 
-			public IntPtr Label { get; }
+			public IntPtr Group { get; }
 
 			public double Width { get; }
 

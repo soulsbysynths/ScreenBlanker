@@ -13,7 +13,10 @@ namespace ScreenBlanker.Platform
 		public const uint WmClose = 0x0010;
 		public const uint WmSetCursor = 0x0020;
 		public const uint WmNull = 0x0000;
+		public const uint WmSetText = 0x000C;
 		public const uint WmKeyDown = 0x0100;
+		public const uint WmSysKeyDown = 0x0104;
+		public const uint WmSysChar = 0x0106;
 		public const uint WmLButtonUp = 0x0202;
 		public const uint WmRButtonUp = 0x0205;
 		public const uint WmApp = 0x8000;
@@ -52,6 +55,20 @@ namespace ScreenBlanker.Platform
 		public const uint RegSz = 1;
 		public const uint KeySetValue = 0x0002;
 		public const int ErrorAlreadyExists = 183;
+		public const int LogPixelsY = 90;
+		public const uint DibRgbColours = 0;
+		public const uint BiRgb = 0;
+		public const uint OfnHideReadOnly = 0x00000004;
+		public const uint OfnNoChangeDir = 0x00000008;
+		public const uint OfnPathMustExist = 0x00000800;
+		public const uint OfnFileMustExist = 0x00001000;
+		public const uint OfnExplorer = 0x00080000;
+
+		/// <summary>
+		/// BLENDFUNCTION packed into its 4 bytes: AC_SRC_OVER, no flags, constant alpha 255,
+		/// AC_SRC_ALPHA (per-pixel premultiplied alpha). Passed by value, exactly as the struct would be.
+		/// </summary>
+		public const uint BlendPerPixelAlpha = 0x01FF0000;
 
 		public static readonly IntPtr HwndTopmost = new IntPtr(-1);
 		public static readonly IntPtr HkeyCurrentUser = new IntPtr(unchecked((int)0x80000001));
@@ -91,6 +108,21 @@ namespace ScreenBlanker.Platform
 
 		[DllImport("user32.dll")]
 		public static extern bool InvalidateRect(IntPtr hWnd, IntPtr lpRect, bool bErase);
+
+		[DllImport("user32.dll")]
+		public static extern bool InvalidateRect(IntPtr hWnd, ref Win32Rect lpRect, bool bErase);
+
+		[DllImport("user32.dll")]
+		public static extern IntPtr GetForegroundWindow();
+
+		[DllImport("user32.dll")]
+		public static extern IntPtr GetDC(IntPtr hWnd);
+
+		[DllImport("user32.dll")]
+		public static extern int ReleaseDC(IntPtr hWnd, IntPtr hDC);
+
+		[DllImport("user32.dll", CharSet = CharSet.Unicode)]
+		public static extern bool SetWindowTextW(IntPtr hWnd, string lpString);
 
 		[DllImport("user32.dll")]
 		public static extern IntPtr BeginPaint(IntPtr hWnd, out PaintStruct lpPaint);
@@ -179,6 +211,27 @@ namespace ScreenBlanker.Platform
 		[DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
 		public static extern bool TextOutW(IntPtr hdc, int x, int y, string lpString, int c);
 
+		[DllImport("gdi32.dll", CharSet = CharSet.Unicode)]
+		public static extern bool GetTextExtentPoint32W(IntPtr hdc, string lpString, int c, out Win32Size psizl);
+
+		[DllImport("gdi32.dll")]
+		public static extern int GetDeviceCaps(IntPtr hdc, int index);
+
+		[DllImport("gdi32.dll")]
+		public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+		[DllImport("gdi32.dll")]
+		public static extern bool DeleteDC(IntPtr hdc);
+
+		[DllImport("gdi32.dll")]
+		public static extern IntPtr CreateDIBSection(IntPtr hdc, ref BitmapInfoHeader pbmi, uint usage, out IntPtr ppvBits, IntPtr hSection, uint offset);
+
+		[DllImport("msimg32.dll")]
+		public static extern bool AlphaBlend(IntPtr hdcDest, int xoriginDest, int yoriginDest, int wDest, int hDest, IntPtr hdcSrc, int xoriginSrc, int yoriginSrc, int wSrc, int hSrc, uint ftn);
+
+		[DllImport("comdlg32.dll", CharSet = CharSet.Unicode)]
+		public static extern bool GetOpenFileNameW(ref OpenFileName lpofn);
+
 		[DllImport("shell32.dll", CharSet = CharSet.Unicode)]
 		public static extern bool Shell_NotifyIconW(uint dwMessage, ref NotifyIconData lpData);
 
@@ -229,6 +282,67 @@ namespace ScreenBlanker.Platform
 		{
 			public int X;
 			public int Y;
+		}
+
+		/// <summary>
+		/// Win32 SIZE.
+		/// </summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct Win32Size
+		{
+			public int Cx;
+			public int Cy;
+		}
+
+		/// <summary>
+		/// Win32 BITMAPINFOHEADER. With 32-bit BI_RGB there is no colour table, so this alone serves as
+		/// the BITMAPINFO for CreateDIBSection.
+		/// </summary>
+		[StructLayout(LayoutKind.Sequential)]
+		public struct BitmapInfoHeader
+		{
+			public uint Size;
+			public int Width;
+			public int Height;
+			public ushort Planes;
+			public ushort BitCount;
+			public uint Compression;
+			public uint SizeImage;
+			public int XPelsPerMeter;
+			public int YPelsPerMeter;
+			public uint ClrUsed;
+			public uint ClrImportant;
+		}
+
+		/// <summary>
+		/// Win32 OPENFILENAMEW.
+		/// </summary>
+		[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+		public struct OpenFileName
+		{
+			public uint StructSize;
+			public IntPtr Owner;
+			public IntPtr Instance;
+			public IntPtr Filter;
+			public IntPtr CustomFilter;
+			public uint MaxCustomFilter;
+			public uint FilterIndex;
+			public IntPtr File;
+			public uint MaxFile;
+			public IntPtr FileTitle;
+			public uint MaxFileTitle;
+			public string InitialDir;
+			public string Title;
+			public uint Flags;
+			public ushort FileOffset;
+			public ushort FileExtension;
+			public string DefExt;
+			public IntPtr CustData;
+			public IntPtr Hook;
+			public IntPtr TemplateName;
+			public IntPtr Reserved;
+			public uint ReservedInt;
+			public uint FlagsEx;
 		}
 
 		/// <summary>

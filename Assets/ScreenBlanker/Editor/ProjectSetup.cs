@@ -20,7 +20,7 @@ namespace ScreenBlanker.EditorTools
 		private const string ProductName = "ScreenBlanker";
 		private const string CompanyName = "Soulsby Synths";
 		private const string AppIconPath = "Assets/ScreenBlanker/Branding/AppIcon.png";
-		private const string AppliedMarkerKey = "ScreenBlanker.ProjectSetup.Applied.v2";
+		private const string AppliedMarkerKey = "ScreenBlanker.ProjectSetup.Applied.v6";
 
 		static ProjectSetup()
 		{
@@ -36,13 +36,18 @@ namespace ScreenBlanker.EditorTools
 		{
 			PlayerSettings.companyName = CompanyName;
 			PlayerSettings.productName = ProductName;
-			PlayerSettings.bundleVersion = "1.0.0";
+
+			// The version is bumped by every menu build (see BuildVersion); only seed it here.
+			if (string.IsNullOrEmpty(PlayerSettings.bundleVersion) || PlayerSettings.bundleVersion == "0.1")
+				PlayerSettings.bundleVersion = BuildVersion.InitialVersion;
+
 			PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Standalone, BundleIdentifier);
 
-			// A small fixed settings window, not a full-screen game.
+			// A fixed settings window, not a full-screen game: the two-column layout at 1.25x, which
+			// leaves room for the taskbar / Dock and menu bar on a 1920x1080 screen.
 			PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
-			PlayerSettings.defaultScreenWidth = 420;
-			PlayerSettings.defaultScreenHeight = 640;
+			PlayerSettings.defaultScreenWidth = 1075;
+			PlayerSettings.defaultScreenHeight = 775;
 			PlayerSettings.defaultIsNativeResolution = false;
 			PlayerSettings.resizableWindow = false;
 			PlayerSettings.allowFullscreenSwitch = false;

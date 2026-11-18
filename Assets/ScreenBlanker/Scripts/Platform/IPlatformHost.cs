@@ -1,4 +1,5 @@
 using System;
+using ScreenBlanker.Blackout;
 
 namespace ScreenBlanker.Platform
 {
@@ -36,6 +37,12 @@ namespace ScreenBlanker.Platform
 		bool IsBlackoutDrawnInApp { get; }
 
 		/// <summary>
+		/// Pixel size the blackout graphic should be scaled to (its longer side), allowing for the
+		/// display's pixel density.
+		/// </summary>
+		int GraphicMaxPixels { get; }
+
+		/// <summary>
 		/// Returns false when another copy of the app is already running.
 		/// </summary>
 		bool TryClaimSingleInstance();
@@ -55,11 +62,21 @@ namespace ScreenBlanker.Platform
 		void Tick();
 
 		/// <summary>
-		/// Covers every display in black and takes keyboard focus. Escape dismisses it.
+		/// Covers every display in black, hides the pointer and takes keyboard focus. Typing the
+		/// content's exit sequence dismisses it.
 		/// </summary>
-		/// <param name="isPromptVisible">Show the "Press Esc" prompt, moved to a new random spot every
-		/// second. False leaves the screens plain black.</param>
-		void ShowBlackout(bool isPromptVisible);
+		void ShowBlackout(BlackoutContent content);
+
+		/// <summary>
+		/// Shows a native "open file" dialog for PNG / JPEG images. Blocks until it closes.
+		/// </summary>
+		/// <returns>The chosen file's full path, or null if the user cancelled.</returns>
+		string ChooseImageFile();
+
+		/// <summary>
+		/// Sets the settings window's title bar text. Ignored in the editor.
+		/// </summary>
+		void SetWindowTitle(string title);
 
 		/// <summary>
 		/// Removes the blackout and hands focus back to whatever had it.

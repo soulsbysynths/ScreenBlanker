@@ -8,10 +8,12 @@ using Debug = UnityEngine.Debug;
 namespace ScreenBlanker.EditorTools
 {
 	/// <summary>
-	/// One-click builds into the project's Builds folder.
+	/// One-click builds into the project's Builds folder. Each menu command bumps the version once
+	/// (see <see cref="BuildVersion"/>), so every build that leaves the machine has its own number.
 	/// </summary>
 	public static class BuildMenu
 	{
+		private const string MacAppPath = "Builds/macOS/ScreenBlanker.app";
 		private const string WindowsExePath = "Builds/Windows/ScreenBlanker.exe";
 		private const string InstallerScriptPath = "Installer/ScreenBlanker.iss";
 		private const string InstallerOutputDirectory = "Builds/Installer";
@@ -28,7 +30,8 @@ namespace ScreenBlanker.EditorTools
 		[MenuItem("ScreenBlanker/Build macOS")]
 		public static void BuildMac()
 		{
-			Build(BuildTarget.StandaloneOSX, "Builds/macOS/ScreenBlanker.app");
+			BuildVersion.Bump();
+			BuildMacCore();
 		}
 
 		/// <summary>
@@ -37,6 +40,7 @@ namespace ScreenBlanker.EditorTools
 		[MenuItem("ScreenBlanker/Build Windows")]
 		public static void BuildWindows()
 		{
+			BuildVersion.Bump();
 			Build(BuildTarget.StandaloneWindows64, WindowsExePath);
 		}
 
@@ -46,14 +50,36 @@ namespace ScreenBlanker.EditorTools
 		[MenuItem("ScreenBlanker/Build Windows Installer")]
 		public static void BuildWindowsInstaller()
 		{
+			BuildVersion.Bump();
+			BuildWindowsInstallerCore();
+		}
+
+		/// <summary>
+		/// Builds the macOS app and the Windows installer under one shared version number.
+		/// </summary>
+		[MenuItem("ScreenBlanker/Build All (macOS + Windows Installer)")]
+		public static void BuildAll()
+		{
+			BuildVersion.Bump();
+			if (BuildMacCore())
+				BuildWindowsInstallerCore();
+		}
+
+		private static bool BuildMacCore()
+		{
+			return Build(BuildTarget.StandaloneOSX, MacAppPath);
+		}
+
+		private static bool BuildWindowsInstallerCore()
+		{
 			if (!Build(BuildTarget.StandaloneWindows64, WindowsExePath))
-				return;
+				return false;
 
 			string compiler = FindInnoCompiler();
 			if (compiler == null)
 			{
 				Debug.LogError("ScreenBlanker: Inno Setup 6 (ISCC.exe) not found. Install it from jrsoftware.org.");
-				return;
+				return false;
 			}
 
 			ProcessStartInfo startInfo = new ProcessStartInfo
@@ -73,12 +99,13 @@ namespace ScreenBlanker.EditorTools
 				if (process.ExitCode != 0)
 				{
 					Debug.LogError("ScreenBlanker: installer build failed (ISCC exit " + process.ExitCode + ")\n" + output);
-					return;
+					return false;
 				}
 			}
 
 			Debug.Log("ScreenBlanker: built installer in " + InstallerOutputDirectory);
 			Reveal(InstallerOutputDirectory);
+			return true;
 		}
 
 		private static bool Build(BuildTarget target, string outputPath)

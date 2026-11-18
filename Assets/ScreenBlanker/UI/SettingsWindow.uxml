@@ -1,0 +1,96 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+	<ui:Template name="Stepper" src="Stepper.uxml" />
+	<Style src="SettingsWindow.uss" />
+	<ui:VisualElement name="window" class="window">
+		<ui:VisualElement name="settings" class="settings">
+			<ui:VisualElement name="header" class="header">
+				<ui:Label name="title" text="ScreenBlanker" class="title" />
+				<ui:Label name="version" text="v1.0.0" class="version" />
+				<ui:VisualElement class="flexible-space" />
+				<ui:Label name="display-count" text="1 display" class="muted" />
+			</ui:VisualElement>
+			<ui:VisualElement name="columns" class="columns">
+				<ui:VisualElement name="left-column" class="column">
+					<ui:VisualElement name="countdown-card" class="card">
+						<ui:Label text="Countdown" class="heading" />
+						<ui:VisualElement name="countdown-edit" class="stepper-row">
+							<ui:Instance template="Stepper" name="countdown-hours">
+								<ui:AttributeOverrides element-name="unit" text="h" />
+							</ui:Instance>
+							<ui:Label text=":" class="separator" />
+							<ui:Instance template="Stepper" name="countdown-minutes">
+								<ui:AttributeOverrides element-name="unit" text="m" />
+							</ui:Instance>
+							<ui:Label text=":" class="separator" />
+							<ui:Instance template="Stepper" name="countdown-seconds">
+								<ui:AttributeOverrides element-name="unit" text="s" />
+							</ui:Instance>
+						</ui:VisualElement>
+						<ui:VisualElement name="countdown-running" class="countdown-running">
+							<ui:Label name="countdown-time" text="00:25:00" class="big-time" />
+							<ui:Label name="countdown-status" text="Blackout when this reaches zero" class="muted" />
+						</ui:VisualElement>
+						<ui:VisualElement class="button-row">
+							<ui:Button name="countdown-toggle" text="Start" class="button primary" />
+							<ui:Button name="countdown-stop" text="Stop" class="button danger" />
+						</ui:VisualElement>
+					</ui:VisualElement>
+					<ui:VisualElement name="daily-card" class="card card--fill card--last">
+						<ui:Label text="Daily blackout" class="heading" />
+						<ui:Toggle name="daily-enabled" text="Black out every day at this time" class="toggle" />
+						<ui:VisualElement class="stepper-row">
+							<ui:Instance template="Stepper" name="daily-hour">
+								<ui:AttributeOverrides element-name="unit" text="h" />
+							</ui:Instance>
+							<ui:Label text=":" class="separator" />
+							<ui:Instance template="Stepper" name="daily-minute">
+								<ui:AttributeOverrides element-name="unit" text="m" />
+							</ui:Instance>
+						</ui:VisualElement>
+						<ui:Label name="daily-next" text="Off" class="muted" />
+					</ui:VisualElement>
+				</ui:VisualElement>
+				<ui:VisualElement name="right-column" class="column column--right">
+					<ui:VisualElement name="blackout-card" class="card card--fill">
+						<ui:Label text="Blackout" class="heading" />
+						<ui:Label text="Shown on the black, moving every second." class="muted" />
+						<ui:Toggle name="show-prompt" text="Show prompt: Press [Esc]" class="toggle" />
+						<ui:Toggle name="show-graphic" text="Show graphic" class="toggle" />
+						<ui:VisualElement name="graphic-row" class="graphic-row">
+							<ui:VisualElement name="graphic-preview" class="graphic-preview" />
+							<ui:VisualElement class="graphic-details">
+								<ui:Label name="graphic-name" text="Built-in logo" class="label" />
+								<ui:Label name="graphic-error" text="" class="muted" />
+								<ui:VisualElement class="button-row">
+									<ui:Button name="graphic-choose" text="Choose…" class="button small" />
+									<ui:Button name="graphic-default" text="Use built-in" class="button small" />
+								</ui:VisualElement>
+							</ui:VisualElement>
+						</ui:VisualElement>
+						<ui:Label text="Keys to end the blackout" class="label keys-title" />
+						<ui:Label name="exit-keys" text="[Esc]" class="keys" />
+						<ui:VisualElement class="button-row">
+							<ui:Button name="listen" text="Listen" class="button small" />
+							<ui:Button name="listen-cancel" text="Cancel" class="button small" />
+							<ui:Button name="reset-keys" text="Reset to [Esc]" class="button small" />
+						</ui:VisualElement>
+						<ui:Label name="keys-hint" text="[Bracketed] keys are control keys." class="muted" />
+					</ui:VisualElement>
+					<ui:VisualElement name="general-card" class="card card--last">
+						<ui:Toggle name="start-at-login" text="Start at login (keeps the daily blackout active)" class="toggle" />
+						<ui:VisualElement class="button-row">
+							<ui:Button name="test-blackout" text="Test blackout" class="button" />
+							<ui:Button name="hide-window" text="Hide window" class="button" />
+							<ui:Button name="quit" text="Quit" class="button" />
+						</ui:VisualElement>
+					</ui:VisualElement>
+				</ui:VisualElement>
+			</ui:VisualElement>
+		</ui:VisualElement>
+		<ui:VisualElement name="hidden-placeholder" class="hidden-placeholder">
+			<ui:Label text="Settings window hidden" class="heading" />
+			<ui:Label text="In a build the window is gone and only the status item remains. This placeholder is editor-only." class="muted" />
+			<ui:Button name="show-settings" text="Show settings" class="button" />
+		</ui:VisualElement>
+	</ui:VisualElement>
+</ui:UXML>

@@ -1,3 +1,4 @@
+using ScreenBlanker.Keys;
 using UnityEngine;
 
 namespace ScreenBlanker
@@ -15,6 +16,9 @@ namespace ScreenBlanker
 		private const string KeyDailyMinute = "daily.minute";
 		private const string KeyStartAtLogin = "startAtLogin";
 		private const string KeyPromptEnabled = "blackout.showPrompt";
+		private const string KeyGraphicEnabled = "blackout.showGraphic";
+		private const string KeyGraphicPath = "blackout.graphicPath";
+		private const string KeyExitSequence = "blackout.exitSequence";
 
 		/// <summary>
 		/// Countdown length, hours part (0-99).
@@ -57,6 +61,21 @@ namespace ScreenBlanker
 		public bool IsPromptEnabled { get; set; }
 
 		/// <summary>
+		/// Whether the blackout shows the graphic, moving with the prompt.
+		/// </summary>
+		public bool IsGraphicEnabled { get; set; }
+
+		/// <summary>
+		/// Image file for the blackout graphic. Empty means the built-in logo.
+		/// </summary>
+		public string GraphicPath { get; set; } = string.Empty;
+
+		/// <summary>
+		/// Key presses that dismiss the blackout.
+		/// </summary>
+		public KeySequence ExitSequence { get; set; } = KeySequence.Default;
+
+		/// <summary>
 		/// Total countdown length in seconds.
 		/// </summary>
 		public int CountdownTotalSeconds => (CountdownHours * 3600) + (CountdownMinutes * 60) + CountdownSeconds;
@@ -75,6 +94,9 @@ namespace ScreenBlanker
 			settings.DailyMinute = PlayerPrefs.GetInt(KeyDailyMinute, 0);
 			settings.IsStartAtLoginEnabled = PlayerPrefs.GetInt(KeyStartAtLogin, 1) != 0;
 			settings.IsPromptEnabled = PlayerPrefs.GetInt(KeyPromptEnabled, 1) != 0;
+			settings.IsGraphicEnabled = PlayerPrefs.GetInt(KeyGraphicEnabled, 1) != 0;
+			settings.GraphicPath = PlayerPrefs.GetString(KeyGraphicPath, string.Empty);
+			settings.ExitSequence = KeySequence.Parse(PlayerPrefs.GetString(KeyExitSequence, string.Empty));
 			settings.Clamp();
 			return settings;
 		}
@@ -93,6 +115,9 @@ namespace ScreenBlanker
 			PlayerPrefs.SetInt(KeyDailyMinute, DailyMinute);
 			PlayerPrefs.SetInt(KeyStartAtLogin, IsStartAtLoginEnabled ? 1 : 0);
 			PlayerPrefs.SetInt(KeyPromptEnabled, IsPromptEnabled ? 1 : 0);
+			PlayerPrefs.SetInt(KeyGraphicEnabled, IsGraphicEnabled ? 1 : 0);
+			PlayerPrefs.SetString(KeyGraphicPath, GraphicPath ?? string.Empty);
+			PlayerPrefs.SetString(KeyExitSequence, ExitSequence.Serialise());
 			PlayerPrefs.Save();
 		}
 

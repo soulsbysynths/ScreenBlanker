@@ -34,6 +34,9 @@ namespace ScreenBlanker.Platform
 		[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 		public delegate byte BoolReturnImp(IntPtr self, IntPtr cmd);
 
+		[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+		public delegate byte BoolObjectArgImp(IntPtr self, IntPtr cmd, IntPtr arg);
+
 		[DllImport(LibObjc, EntryPoint = "objc_getClass")]
 		public static extern IntPtr GetClass(string name);
 
@@ -100,6 +103,11 @@ namespace ScreenBlanker.Platform
 		[DllImport(LibObjc, EntryPoint = "objc_msgSend")]
 		public static extern void Send(IntPtr receiver, IntPtr selector, CGRect arg1);
 
+		// id f(id, SEL, NSRect) - initWithFrame:. Named apart from the void overload above, since C#
+		// cannot overload on return type alone.
+		[DllImport(LibObjc, EntryPoint = "objc_msgSend")]
+		public static extern IntPtr SendObject(IntPtr receiver, IntPtr selector, CGRect arg1);
+
 		// void f(id, SEL, NSRect, BOOL) - setFrame:display:
 		[DllImport(LibObjc, EntryPoint = "objc_msgSend")]
 		public static extern void Send(IntPtr receiver, IntPtr selector, CGRect arg1, byte arg2);
@@ -111,6 +119,10 @@ namespace ScreenBlanker.Platform
 		// id f(id, SEL, const char*) - stringWithUTF8String:
 		[DllImport(LibObjc, EntryPoint = "objc_msgSend")]
 		public static extern IntPtr Send(IntPtr receiver, IntPtr selector, byte[] utf8);
+
+		// id f(id, SEL, const void*, NSUInteger) - dataWithBytes:length:
+		[DllImport(LibObjc, EntryPoint = "objc_msgSend")]
+		public static extern IntPtr Send(IntPtr receiver, IntPtr selector, byte[] bytes, ulong length);
 
 		// BOOL f(id, SEL)
 		[DllImport(LibObjc, EntryPoint = "objc_msgSend")]

@@ -4,6 +4,8 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using AOT;
+using ScreenBlanker.Blackout;
+using ScreenBlanker.Keys;
 using UnityEngine;
 using static ScreenBlanker.Platform.WindowsNative;
 
@@ -26,12 +28,15 @@ namespace ScreenBlanker.Platform
 		private const string RunKeyPath = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 		private const string RunValueName = "ScreenBlanker";
 		private const string TrayIconFileName = "TrayIcon.ico";
-		private const string PromptText = "Press Esc";
 		private const uint TrayCallbackMessage = WmApp + 1;
 		private const uint PromptColour = 0x008C8C8C;
 		private const int PromptFontHeight = -22;
-		private const int PromptBoxWidth = 140;
-		private const int PromptBoxHeight = 32;
+		private const int GraphicDisplaySize = 180;
+		private const int GroupGap = 12;
+		private const int MaxPathChars = 1024;
+
+		// Modifiers first, so a combination pressed within one poll is fed modifier-first.
+		private static readonly int[] ModifierVirtualKeys = { 0x10, 0x11, 0x12, 0x5B, 0x5C };
 
 		// Callbacks are static (required for IL2CPP) and reach the live host through this.
 		private static WindowsPlatformHost current;
@@ -44,6 +49,8 @@ namespace ScreenBlanker.Platform
 		private readonly List<IntPtr> windowsPendingDestroy = new List<IntPtr>();
 		private readonly List<Win32Rect> monitorRects = new List<Win32Rect>();
 		private readonly System.Random random = new System.Random();
+		private readonly List<int> polledVirtualKeys = new List<int>();
+		private readonly HashSet<int> virtualKeysDown = new HashSet<int>();
 
 		private Func<StatusSnapshot> statusProvider;
 		private IntPtr instance;
@@ -52,13 +59,23 @@ namespace ScreenBlanker.Platform
 		private IntPtr promptFont;
 		private IntPtr unityWindow;
 		private IntPtr singleInstanceMutex;
+		private IntPtr graphicDc;
+		private IntPtr graphicBitmap;
+		private IntPtr previousGraphicBitmap;
+		private BlackoutContent content;
+		private KeySequence.Matcher exitMatcher;
+		private Win32Size textSize;
+		private int graphicWidth;
+		private int graphicHeight;
+		private int groupWidth;
+		private int groupHeight;
+		private float dpiScale = 1.0f;
 		private uint taskbarCreatedMessage;
 		private string lastTip;
 		private float lastPromptMoveTime;
 		private float lastStatusRefreshTime;
 		private bool isTrayIconAdded;
 		private bool isInitialised;
-		private bool isPromptVisible;
 
 		/// <summary>
 		/// Creates the host. Nothing native is touched until <see cref="Initialise"/>.
@@ -82,6 +99,9 @@ namespace ScreenBlanker.Platform
 
 		/// <inheritdoc/>
 		public bool IsBlackoutDrawnInApp => false;
+
+		/// <inheritdoc/>
+		public int GraphicMaxPixels => Mathf.RoundToInt(GraphicDisplaySize * dpiScale);
 
 		/// <inheritdoc/>
 		public bool TryClaimSingleInstance()
@@ -111,7 +131,18 @@ namespace ScreenBlanker.Platform
 			// that can become foreground, or it will not close when the user clicks elsewhere.
 			trayWindow = CreateWindowExW(WsExToolWindow, TrayClassName, "ScreenBlanker", WsPopup, 0, 0, 0, 0, IntPtr.Zero, IntPtr.Zero, instance, IntPtr.Zero);
 			taskbarCreatedMessage = RegisterWindowMessageW("TaskbarCreated");
-			promptFont = CreateFontW(PromptFontHeight, 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
+			IntPtr screenDc = GetDC(IntPtr.Zero);
+			dpiScale = Math.Max(1.0f, GetDeviceCaps(screenDc, LogPixelsY) / 96.0f);
+			ReleaseDC(IntPtr.Zero, screenDc);
+			promptFont = CreateFontW(Mathf.RoundToInt(PromptFontHeight * dpiScale), 0, 0, 0, 400, 0, 0, 0, 1, 0, 0, 5, 0, "Segoe UI");
+
+			foreach (int virtualKey in ModifierVirtualKeys)
+				polledVirtualKeys.Add(virtualKey);
+			foreach (int virtualKey in KeyCatalogue.WindowsVirtualKeys)
+			{
+				if (!polledVirtualKeys.Contains(virtualKey))
+					polledVirtualKeys.Add(virtualKey);
+			}
 
 			trayIcon = LoadTrayIcon();
 			AddTrayIcon();
@@ -151,9 +182,9 @@ namespace ScreenBlanker.Platform
 			if (!IsBlackoutVisible)
 				return;
 
-			// Windows' foreground lock may stop a background app taking keyboard focus, so Escape is
-			// also polled globally rather than relying only on WM_KEYDOWN.
-			if ((GetAsyncKeyState(VkEscape) & 0x8001) != 0)
+			// Polled globally rather than read from WM_KEYDOWN: Windows' foreground lock may stop a
+			// background app taking keyboard focus.
+			if (PollExitSequence())
 			{
 				HideBlackout();
 				return;
@@ -167,15 +198,16 @@ namespace ScreenBlanker.Platform
 		}
 
 		/// <inheritdoc/>
-		public void ShowBlackout(bool isPromptVisible)
+		public void ShowBlackout(BlackoutContent content)
 		{
 			if (!isInitialised || IsBlackoutVisible)
 				return;
 
-			this.isPromptVisible = isPromptVisible;
-
-			// Clear the "pressed since last call" bit so an old Escape press does not dismiss at once.
-			GetAsyncKeyState(VkEscape);
+			this.content = content;
+			exitMatcher = content.ExitSequence.CreateMatcher();
+			PrimeKeyStates();
+			CreateGraphic(content.Graphic);
+			MeasureGroup();
 
 			CreateBlackoutWindows();
 			IsBlackoutVisible = true;
@@ -198,6 +230,46 @@ namespace ScreenBlanker.Platform
 
 			blackoutWindows.Clear();
 			IsBlackoutVisible = false;
+		}
+
+		/// <inheritdoc/>
+		public string ChooseImageFile()
+		{
+#if UNITY_EDITOR
+			string chosen = UnityEditor.EditorUtility.OpenFilePanel("Choose blackout graphic", string.Empty, "png,jpg,jpeg");
+			return string.IsNullOrEmpty(chosen) ? null : chosen;
+#else
+			IntPtr filter = Marshal.StringToHGlobalUni("Images (*.png, *.jpg)\0*.png;*.jpg;*.jpeg\0\0");
+			IntPtr file = Marshal.AllocHGlobal(MaxPathChars * 2);
+			try
+			{
+				Marshal.WriteInt16(file, 0);
+				OpenFileName dialog = new OpenFileName
+				{
+					StructSize = (uint)Marshal.SizeOf(typeof(OpenFileName)),
+					Owner = unityWindow,
+					Filter = filter,
+					FilterIndex = 1,
+					File = file,
+					MaxFile = MaxPathChars,
+					Title = "Choose blackout graphic",
+					Flags = OfnExplorer | OfnFileMustExist | OfnPathMustExist | OfnHideReadOnly | OfnNoChangeDir,
+				};
+				return GetOpenFileNameW(ref dialog) ? Marshal.PtrToStringUni(file) : null;
+			}
+			finally
+			{
+				Marshal.FreeHGlobal(file);
+				Marshal.FreeHGlobal(filter);
+			}
+#endif
+		}
+
+		/// <inheritdoc/>
+		public void SetWindowTitle(string title)
+		{
+			if (!isEditor && unityWindow != IntPtr.Zero)
+				SetWindowTextW(unityWindow, title);
 		}
 
 		/// <inheritdoc/>
@@ -283,6 +355,8 @@ namespace ScreenBlanker.Platform
 				DeleteObject(promptFont);
 				promptFont = IntPtr.Zero;
 			}
+
+			DestroyGraphic();
 
 			// Unregister so the editor never keeps a class pointing at a callback thunk that a
 			// domain reload has freed.
@@ -371,14 +445,15 @@ namespace ScreenBlanker.Platform
 			switch (msg)
 			{
 				case WmPaint:
-					PaintPrompt(blackout);
+					PaintOverlay(blackout);
 					return IntPtr.Zero;
 				case WmKeyDown:
-					if (wParam.ToInt64() == VkEscape)
-						HideBlackout();
+				case WmSysKeyDown:
+				case WmSysChar:
+					// Keys are polled in Tick. Swallowing them here stops Alt+F4, and Alt opening a menu.
 					return IntPtr.Zero;
 				case WmClose:
-					// Ignore Alt+F4 on the blackout; only Escape dismisses it.
+					// Only the exit sequence dismisses the blackout.
 					return IntPtr.Zero;
 				case WmSetCursor:
 					// No pointer over the blackout. Returning TRUE stops DefWindowProc restoring one.
@@ -545,27 +620,170 @@ namespace ScreenBlanker.Platform
 			}
 		}
 
-		private void MovePrompt(BlackoutWindow blackout)
+		/// <summary>
+		/// Polls every catalogue key and feeds new presses to the matcher. Returns true once the exit
+		/// sequence is complete.
+		/// </summary>
+		private bool PollExitSequence()
 		{
-			blackout.PromptX = random.Next(0, Math.Max(1, blackout.Width - PromptBoxWidth));
-			blackout.PromptY = random.Next(0, Math.Max(1, blackout.Height - PromptBoxHeight));
-			InvalidateRect(blackout.Window, IntPtr.Zero, true);
+			bool isComplete = false;
+			foreach (int virtualKey in polledVirtualKeys)
+			{
+				short state = GetAsyncKeyState(virtualKey);
+				bool isDown = (state & 0x8000) != 0;
+				bool wasDown = virtualKeysDown.Contains(virtualKey);
+
+				// The low bit catches a tap that went down and back up between two polls.
+				bool isPressed = (isDown && !wasDown) || (!isDown && (state & 0x0001) != 0);
+
+				if (isDown)
+					virtualKeysDown.Add(virtualKey);
+				else
+					virtualKeysDown.Remove(virtualKey);
+
+				if (isPressed && !isComplete && exitMatcher.Feed(KeyCatalogue.FromWindowsVirtualKey(virtualKey)))
+					isComplete = true;
+			}
+
+			return isComplete;
 		}
 
-		private void PaintPrompt(BlackoutWindow blackout)
+		/// <summary>
+		/// Notes which keys are already held and clears their "pressed since last call" bits, so a key
+		/// held as the blackout starts does not count as a press.
+		/// </summary>
+		private void PrimeKeyStates()
+		{
+			virtualKeysDown.Clear();
+			foreach (int virtualKey in polledVirtualKeys)
+			{
+				if ((GetAsyncKeyState(virtualKey) & 0x8000) != 0)
+					virtualKeysDown.Add(virtualKey);
+			}
+		}
+
+		private void CreateGraphic(BlackoutGraphic graphic)
+		{
+			DestroyGraphic();
+			if (graphic == null)
+				return;
+
+			BitmapInfoHeader header = new BitmapInfoHeader
+			{
+				Size = (uint)Marshal.SizeOf(typeof(BitmapInfoHeader)),
+				Width = graphic.PixelWidth,
+				Height = -graphic.PixelHeight,
+				Planes = 1,
+				BitCount = 32,
+				Compression = BiRgb,
+			};
+
+			IntPtr screenDc = GetDC(IntPtr.Zero);
+			graphicDc = CreateCompatibleDC(screenDc);
+			graphicBitmap = CreateDIBSection(screenDc, ref header, DibRgbColours, out IntPtr bits, IntPtr.Zero, 0);
+			ReleaseDC(IntPtr.Zero, screenDc);
+
+			if (graphicDc == IntPtr.Zero || graphicBitmap == IntPtr.Zero || bits == IntPtr.Zero)
+			{
+				DestroyGraphic();
+				return;
+			}
+
+			Marshal.Copy(graphic.PremultipliedBgra, 0, bits, graphic.PremultipliedBgra.Length);
+			previousGraphicBitmap = SelectObject(graphicDc, graphicBitmap);
+			graphicWidth = graphic.PixelWidth;
+			graphicHeight = graphic.PixelHeight;
+		}
+
+		private void DestroyGraphic()
+		{
+			if (graphicDc != IntPtr.Zero)
+			{
+				if (previousGraphicBitmap != IntPtr.Zero)
+					SelectObject(graphicDc, previousGraphicBitmap);
+				DeleteDC(graphicDc);
+			}
+
+			if (graphicBitmap != IntPtr.Zero)
+				DeleteObject(graphicBitmap);
+
+			graphicDc = IntPtr.Zero;
+			graphicBitmap = IntPtr.Zero;
+			previousGraphicBitmap = IntPtr.Zero;
+			graphicWidth = 0;
+			graphicHeight = 0;
+		}
+
+		/// <summary>
+		/// Works out the size of the moving group: graphic on top, prompt text centred beneath it.
+		/// </summary>
+		private void MeasureGroup()
+		{
+			textSize = default;
+			if (content.PromptText != null)
+			{
+				IntPtr screenDc = GetDC(IntPtr.Zero);
+				IntPtr previousFont = SelectObject(screenDc, promptFont);
+				GetTextExtentPoint32W(screenDc, content.PromptText, content.PromptText.Length, out textSize);
+				SelectObject(screenDc, previousFont);
+				ReleaseDC(IntPtr.Zero, screenDc);
+			}
+
+			int gap = graphicHeight > 0 && textSize.Cy > 0 ? Mathf.RoundToInt(GroupGap * dpiScale) : 0;
+			groupWidth = Math.Max(graphicWidth, textSize.Cx);
+			groupHeight = graphicHeight + gap + textSize.Cy;
+		}
+
+		private void MovePrompt(BlackoutWindow blackout)
+		{
+			if (groupWidth <= 0 || groupHeight <= 0)
+				return;
+
+			// Repaint only where the group was and where it goes, so the rest of the screen never flickers.
+			InvalidateGroup(blackout);
+			blackout.PromptX = random.Next(0, Math.Max(1, blackout.Width - groupWidth));
+			blackout.PromptY = random.Next(0, Math.Max(1, blackout.Height - groupHeight));
+			InvalidateGroup(blackout);
+		}
+
+		private void InvalidateGroup(BlackoutWindow blackout)
+		{
+			Win32Rect area = new Win32Rect
+			{
+				Left = blackout.PromptX,
+				Top = blackout.PromptY,
+				Right = blackout.PromptX + groupWidth,
+				Bottom = blackout.PromptY + groupHeight,
+			};
+			InvalidateRect(blackout.Window, ref area, true);
+		}
+
+		private void PaintOverlay(BlackoutWindow blackout)
 		{
 			IntPtr hdc = BeginPaint(blackout.Window, out PaintStruct paint);
-			if (!isPromptVisible)
+			if (content == null || !content.HasOverlay)
 			{
 				EndPaint(blackout.Window, ref paint);
 				return;
 			}
 
-			IntPtr previousFont = SelectObject(hdc, promptFont);
-			SetTextColor(hdc, PromptColour);
-			SetBkMode(hdc, Transparent);
-			TextOutW(hdc, blackout.PromptX, blackout.PromptY, PromptText, PromptText.Length);
-			SelectObject(hdc, previousFont);
+			if (graphicDc != IntPtr.Zero)
+			{
+				int graphicX = blackout.PromptX + ((groupWidth - graphicWidth) / 2);
+				AlphaBlend(hdc, graphicX, blackout.PromptY, graphicWidth, graphicHeight, graphicDc, 0, 0, graphicWidth, graphicHeight, BlendPerPixelAlpha);
+			}
+
+			if (content.PromptText != null)
+			{
+				int textX = blackout.PromptX + ((groupWidth - textSize.Cx) / 2);
+				int textY = blackout.PromptY + groupHeight - textSize.Cy;
+				IntPtr previousFont = SelectObject(hdc, promptFont);
+				SetTextColor(hdc, PromptColour);
+				SetBkMode(hdc, Transparent);
+				TextOutW(hdc, textX, textY, content.PromptText, content.PromptText.Length);
+				SelectObject(hdc, previousFont);
+			}
+
 			EndPaint(blackout.Window, ref paint);
 		}
 

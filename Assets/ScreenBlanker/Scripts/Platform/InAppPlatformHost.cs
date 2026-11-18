@@ -1,4 +1,6 @@
 using System;
+using ScreenBlanker.Blackout;
+using ScreenBlanker.Keys;
 using UnityEngine;
 
 namespace ScreenBlanker.Platform
@@ -9,6 +11,7 @@ namespace ScreenBlanker.Platform
 	/// </summary>
 	public sealed class InAppPlatformHost : IPlatformHost
 	{
+		private KeySequence.Matcher exitMatcher;
 		private bool wasFullScreen;
 
 		/// <inheritdoc/>
@@ -31,6 +34,9 @@ namespace ScreenBlanker.Platform
 		public bool IsBlackoutDrawnInApp => true;
 
 		/// <inheritdoc/>
+		public int GraphicMaxPixels => 180;
+
+		/// <inheritdoc/>
 		public bool TryClaimSingleInstance()
 		{
 			return true;
@@ -44,21 +50,47 @@ namespace ScreenBlanker.Platform
 		/// <inheritdoc/>
 		public void Tick()
 		{
-			if (IsBlackoutVisible && Input.GetKeyDown(KeyCode.Escape))
-				HideBlackout();
+			if (!IsBlackoutVisible || !Input.anyKeyDown)
+				return;
+
+			foreach (KeyCode key in KeyCatalogue.UnityKeysToPoll)
+			{
+				if (Input.GetKeyDown(key) && exitMatcher.Feed(key))
+				{
+					HideBlackout();
+					return;
+				}
+			}
 		}
 
 		/// <inheritdoc/>
-		public void ShowBlackout(bool isPromptVisible)
+		public void ShowBlackout(BlackoutContent content)
 		{
 			if (IsBlackoutVisible)
 				return;
 
+			exitMatcher = content.ExitSequence.CreateMatcher();
 			IsBlackoutVisible = true;
 			wasFullScreen = Screen.fullScreen;
 			Cursor.visible = false;
 			if (!Application.isEditor)
 				Screen.fullScreen = true;
+		}
+
+		/// <inheritdoc/>
+		public string ChooseImageFile()
+		{
+#if UNITY_EDITOR
+			string path = UnityEditor.EditorUtility.OpenFilePanel("Choose blackout graphic", string.Empty, "png,jpg,jpeg");
+			return string.IsNullOrEmpty(path) ? null : path;
+#else
+			return null;
+#endif
+		}
+
+		/// <inheritdoc/>
+		public void SetWindowTitle(string title)
+		{
 		}
 
 		/// <inheritdoc/>

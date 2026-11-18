@@ -1,0 +1,8 @@
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" editor-extension-mode="False">
+	<ui:VisualElement class="stepper">
+		<ui:Button name="up" text="+" class="stepper-button" />
+		<ui:TextField name="value" value="00" max-length="2" class="stepper-field" />
+		<ui:Button name="down" text="-" class="stepper-button" />
+		<ui:Label name="unit" text="h" class="unit" />
+	</ui:VisualElement>
+</ui:UXML>
